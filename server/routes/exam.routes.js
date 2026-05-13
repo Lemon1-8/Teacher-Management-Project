@@ -40,6 +40,9 @@ router.post("/:id/questions", [authMiddleware.verifyToken, roleMiddleware.isTrai
 // 导入题目
 router.post("/:id/import", [authMiddleware.verifyToken, roleMiddleware.isTrainerOrAdmin, upload.single('file')], examController.importQuestions);
 
+// AI 生成题目（支持上传文件）
+router.post("/:id/generate-questions", [authMiddleware.verifyToken, roleMiddleware.isTrainerOrAdmin, upload.single('file')], examController.generateQuestions);
+
 // 删除单个题目
 router.delete("/questions/:id", [authMiddleware.verifyToken, roleMiddleware.isTrainerOrAdmin], examController.deleteQuestion);
 

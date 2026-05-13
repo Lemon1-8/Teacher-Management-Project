@@ -13,6 +13,9 @@
         >
           <el-button type="warning">导入题目</el-button>
         </el-upload>
+        <el-button type="primary" @click="openAiDialog" style="margin-right: 10px">
+          <el-icon style="margin-right: 4px"><Cpu /></el-icon>AI 生成题目
+        </el-button>
         <el-tooltip content="支持 Excel、Word、PDF 格式。请点击下载查看 Word/PDF 编写规范。" placement="bottom">
           <el-button @click="showFormatHelp">格式说明</el-button>
         </el-tooltip>
@@ -26,7 +29,7 @@
     <el-dialog v-model="helpVisible" title="题目导入格式说明" width="600px">
       <div class="help-content">
         <h3>1. Excel 格式</h3>
-        <p>请下载“Excel模板”并按格式填写。支持 .xlsx 和 .xls。</p>
+        <p>请下载"Excel模板"并按格式填写。支持 .xlsx 和 .xls。</p>
         
         <h3>2. Word/PDF 格式</h3>
         <p>支持 .docx 和 .pdf。请严格按照以下格式编写（注意标点符号）：</p>
@@ -48,14 +51,84 @@
           答案：A,B<br>
           分值：5<br>
         </div>
-        <p class="tip">提示：题目编号请使用数字加点（如 1.），选项请使用大写字母加点（如 A.），答案行必须以“答案：”开头。</p>
+        <p class="tip">提示：题目编号请使用数字加点（如 1.），选项请使用大写字母加点（如 A.），答案行必须以"答案："开头。</p>
+      </div>
+    </el-dialog>
+
+    <!-- AI 生成题目弹窗 -->
+    <el-dialog v-model="aiVisible" title="AI 智能出题" width="800px" :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item label="素材来源">
+          <el-radio-group v-model="aiSource">
+            <el-radio label="auto">自动提取（从关联培训内容）</el-radio>
+            <el-radio label="file">上传文件</el-radio>
+            <el-radio label="manual">手动输入</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="aiSource === 'file'" label="选择文件">
+          <div>
+            <input
+              type="file"
+              ref="aiFileInput"
+              accept=".xlsx,.xls,.docx,.pdf"
+              @change="handleAiFileChange"
+              style="margin-bottom: 8px"
+            />
+            <span v-if="aiFile" style="margin-left: 10px; color: #67c23a">已选择: {{ aiFile.name }}</span>
+            <div class="el-upload__tip">支持 Excel、Word、PDF 格式，文件内容将被 AI 分析后出题</div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="aiSource === 'manual'" label="培训内容">
+          <el-input v-model="aiText" type="textarea" :rows="6" placeholder="请粘贴培训内容文本（至少50字）" />
+        </el-form-item>
+        <el-form-item label="生成数量">
+          <div style="display: flex; gap: 20px; flex-wrap: wrap">
+            <span>单选题 <el-input-number v-model="aiSingleCount" :min="0" :max="20" size="small" style="width: 80px" /></span>
+            <span>多选题 <el-input-number v-model="aiMultipleCount" :min="0" :max="20" size="small" style="width: 80px" /></span>
+            <span>判断题 <el-input-number v-model="aiTruefalseCount" :min="0" :max="20" size="small" style="width: 80px" /></span>
+            <span>每题分值 <el-input-number v-model="aiScore" :min="1" :max="20" size="small" style="width: 80px" /></span>
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleAiGenerate" :loading="aiGenerating" :disabled="aiSingleCount + aiMultipleCount + aiTruefalseCount === 0">
+            开始生成
+          </el-button>
+        </el-form-item>
+      </el-form>
+
+      <!-- 生成结果预览 -->
+      <div v-if="aiResults.length > 0" class="ai-results">
+        <el-divider />
+        <h4>生成结果（共 {{ aiResults.length }} 题，请选择要采用的题目）</h4>
+        <div v-for="(q, i) in aiResults" :key="i" class="ai-result-item" :class="{ discarded: q._discarded }">
+          <div class="ai-result-header">
+            <el-tag :type="q.type === 'single' ? 'success' : q.type === 'multiple' ? 'warning' : 'info'" size="small">
+              {{ q.type === 'single' ? '单选' : q.type === 'multiple' ? '多选' : '判断' }}
+            </el-tag>
+            <span class="ai-result-content">{{ q.content }}</span>
+          </div>
+          <div class="ai-result-options">
+            <span v-for="(val, key) in q.options" :key="key">{{ key }}. {{ val }}&nbsp;&nbsp;</span>
+          </div>
+          <div class="ai-result-answer">答案：{{ Array.isArray(q.answer) ? q.answer.join(', ') : q.answer }} | 分值：{{ q.score }} | 解析：{{ q.analysis }}</div>
+          <div class="ai-result-actions">
+            <el-button v-if="q._discarded" type="info" size="small" @click="q._discarded = false">撤销丢弃</el-button>
+            <el-button v-else type="danger" size="small" @click="q._discarded = true">丢弃</el-button>
+          </div>
+        </div>
+        <div style="margin-top: 16px; text-align: right">
+          <el-button @click="aiVisible = false; aiResults = []">取消</el-button>
+          <el-button type="primary" @click="adoptAiResults">
+            采用选中题目 ({{ aiResults.filter(q => !q._discarded).length }} 道)
+          </el-button>
+        </div>
       </div>
     </el-dialog>
 
     <el-alert
       title="提示"
       type="info"
-      description="修改后请务必点击右上角的“保存所有修改”按钮以同步到服务器。"
+      description="修改后请务必点击右上角的保存所有修改按钮以同步到服务器。"
       show-icon
       class="mb-20"
     />
@@ -127,7 +200,7 @@
         </template>
       </draggable>
 
-      <el-empty v-if="questions.length === 0" description="暂无题目，请点击上方“添加题目”按钮" />
+      <el-empty v-if="questions.length === 0" description="暂无题目，请点击上方添加题目按钮" />
     </div>
   </div>
 </template>
@@ -137,7 +210,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
-import { getExamQuestions, saveExamQuestions, getExamDetail, importQuestions } from '../../api/exam'
+import { getExamQuestions, saveExamQuestions, getExamDetail, importQuestions, generateQuestions } from '../../api/exam'
 
 const router = useRouter()
 const route = useRoute()
@@ -147,6 +220,30 @@ const loading = ref(false)
 const helpVisible = ref(false)
 const examTitle = ref('')
 const questions = ref<any[]>([])
+
+// AI 生成相关
+const aiVisible = ref(false)
+const aiSource = ref('auto')
+const aiText = ref('')
+const aiFile = ref<File | null>(null)
+const aiFileInput = ref<HTMLInputElement | null>(null)
+const aiSingleCount = ref(5)
+const aiMultipleCount = ref(3)
+const aiTruefalseCount = ref(2)
+const aiScore = ref(5)
+const aiGenerating = ref(false)
+const aiResults = ref<any[]>([])
+
+const handleAiFileChange = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (files && files.length > 0) {
+    aiFile.value = files[0]
+    console.log('AI 文件已选择:', files[0].name, '大小:', files[0].size)
+  } else {
+    aiFile.value = null
+  }
+}
 
 const showFormatHelp = () => {
   helpVisible.value = true
@@ -278,6 +375,87 @@ const saveAll = async () => {
     loading.value = false
   }
 }
+
+const openAiDialog = () => {
+  aiSource.value = 'auto'
+  aiText.value = ''
+  aiFile.value = null
+  if (aiFileInput.value) {
+    aiFileInput.value.value = ''
+  }
+  aiSingleCount.value = 5
+  aiMultipleCount.value = 3
+  aiTruefalseCount.value = 2
+  aiScore.value = 5
+  aiResults.value = []
+  aiVisible.value = true
+}
+
+const handleAiGenerate = async () => {
+  console.log('=== AI 生成开始 ===')
+  console.log('aiSource:', aiSource.value, 'aiFile:', aiFile.value?.name, 'aiText长度:', aiText.value.length)
+  if (aiSource.value === 'file' && !aiFile.value) {
+    console.log('文件未选择，中止')
+    ElMessage.warning('请先选择文件')
+    return
+  }
+  if (aiSource.value === 'manual' && aiText.value.trim().length < 50) {
+    ElMessage.warning('手动输入的文本内容至少需要50字')
+    return
+  }
+  aiGenerating.value = true
+  aiResults.value = []
+  try {
+    const params: any = {
+      singleCount: aiSingleCount.value,
+      multipleCount: aiMultipleCount.value,
+      truefalseCount: aiTruefalseCount.value,
+      score: aiScore.value,
+    }
+    if (aiSource.value === 'manual') {
+      params.text = aiText.value
+    }
+    const file = aiSource.value === 'file' ? aiFile.value : undefined
+    console.log('调用 generateQuestions, params:', params, 'file:', file?.name)
+
+    const res: any = await generateQuestions(examId, params, file)
+    console.log('API 原始返回:', JSON.stringify(res))
+    console.log('res.questions:', res.questions)
+    aiResults.value = (res.questions || []).map((q: any) => ({
+      ...q,
+      answer: q.type === 'multiple' && typeof q.answer === 'string'
+        ? q.answer.split(',').map((s: string) => s.trim())
+        : q.answer,
+      _discarded: false,
+    }))
+    console.log('aiResults 设置完成，共', aiResults.value.length, '题')
+    ElMessage.success(res.message || `AI 成功生成 ${aiResults.value.length} 道题目`)
+  } catch (error: any) {
+    console.error('AI 生成异常:', error)
+    ElMessage.error(error?.message || 'AI 生成失败，请重试')
+  } finally {
+    aiGenerating.value = false
+  }
+}
+
+const adoptAiResults = () => {
+  const adopted = aiResults.value.filter((q: any) => !q._discarded)
+  if (adopted.length === 0) {
+    ElMessage.warning('请至少选择一道题目')
+    return
+  }
+  // 追加到题目列表（作为未保存项）
+  adopted.forEach((q: any) => {
+    const { _discarded, ...questionData } = q
+    questions.value.push({
+      ...questionData,
+      tempId: Math.random().toString(36).substring(7),
+    })
+  })
+  ElMessage.success(`已添加 ${adopted.length} 道题目，请点击"保存所有修改"保存`)
+  aiVisible.value = false
+  aiResults.value = []
+}
 </script>
 
 <style scoped>
@@ -362,5 +540,51 @@ const saveAll = async () => {
 .tip {
   font-size: 12px;
   color: #909399;
+}
+
+.ai-results h4 {
+  margin-bottom: 12px;
+}
+
+.ai-result-item {
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+  transition: opacity 0.2s;
+}
+
+.ai-result-item.discarded {
+  opacity: 0.35;
+}
+
+.ai-result-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-result-content {
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ai-result-options {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 6px;
+  margin-left: 50px;
+}
+
+.ai-result-answer {
+  font-size: 13px;
+  color: #409eff;
+  margin-bottom: 8px;
+  margin-left: 50px;
+}
+
+.ai-result-actions {
+  text-align: right;
 }
 </style>

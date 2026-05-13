@@ -78,6 +78,31 @@ export function saveExamQuestions(examId: number, questions: any[]) {
   })
 }
 
+export function generateQuestions(examId: number, params: any, file?: File) {
+  if (file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    Object.keys(params).forEach(key => {
+      if (params[key] !== undefined && params[key] !== null) {
+        formData.append(key, String(params[key]))
+      }
+    })
+    return request({
+      url: `/exams/${examId}/generate-questions`,
+      method: 'post',
+      data: formData,
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000
+    })
+  }
+  return request({
+    url: `/exams/${examId}/generate-questions`,
+    method: 'post',
+    data: params,
+    timeout: 120000
+  })
+}
+
 export function importQuestions(examId: number, file: File) {
   const formData = new FormData()
   formData.append('file', file)

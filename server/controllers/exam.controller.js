@@ -714,6 +714,92 @@ exports.importQuestions = async (req, res) => {
 };
 
 /**
+ * AI 生成题目（支持上传文件）
+ */
+exports.generateQuestions = async (req, res) => {
+  try {
+    const exam_id = req.params.id;
+    const { text, singleCount = 5, multipleCount = 3, truefalseCount = 2, score = 5 } = req.body;
+
+    let content = text || "";
+
+    // 1. 如果上传了文件，解析提取文本
+    if (req.file) {
+      const ext = req.file.originalname.split(".").pop().toLowerCase();
+
+      if (["xlsx", "xls"].includes(ext)) {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheet = workbook.SheetNames[0];
+        const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheet], { header: 1 });
+        // 将所有单元格文本拼接
+        content = rows
+          .flat()
+          .filter(Boolean)
+          .map(String)
+          .join("\n");
+      } else if (ext === "docx") {
+        const result = await mammoth.extractRawText({ path: req.file.path });
+        content = result.value;
+      } else if (ext === "pdf") {
+        const dataBuffer = fs.readFileSync(req.file.path);
+        const data = await pdf(dataBuffer);
+        content = data.text;
+      } else {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return Response.error(res, "不支持的文件格式，请上传 xlsx/docx/pdf", 400);
+      }
+
+      // 清理临时文件
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    }
+
+    // 2. 如果没有文件也没有手动文本，从考试关联的培训中提取
+    if (!content) {
+      const exam = await Exam.findByPk(exam_id, {
+        include: [{ model: db.training, attributes: ["title", "content", "description"] }],
+      });
+      if (!exam) return Response.error(res, "考试不存在", 404);
+
+      if (exam.training && exam.training.content) {
+        content = exam.training.content.replace(/<[^>]+>/g, "").trim();
+      }
+      if ((!content || content.length < 50) && exam.training) {
+        const desc = (exam.training.description || "").replace(/<[^>]+>/g, "").trim();
+        content = content ? content + "\n" + desc : desc;
+      }
+    }
+
+    if (!content || content.length < 50) {
+      return Response.error(res, "素材内容不足（需至少50字），请上传文件或手动输入文本", 400);
+    }
+
+    // 限制内容长度
+    if (content.length > 20000) {
+      content = content.substring(0, 20000);
+    }
+
+    const aiUtil = require("../utils/ai");
+    const questions = await aiUtil.generateQuestions(content, {
+      singleCount: parseInt(singleCount),
+      multipleCount: parseInt(multipleCount),
+      truefalseCount: parseInt(truefalseCount),
+      score: parseInt(score),
+    });
+
+    return Response.success(res, { questions }, `AI 成功生成 ${questions.length} 道题目`);
+  } catch (error) {
+    // 清理可能的临时文件
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    if (error.message.includes("API key") || error.message.includes("Incorrect API key")) {
+      return Response.error(res, "AI 服务未配置，请联系管理员设置 API Key", 500);
+    }
+    return Response.error(res, "AI 生成失败: " + error.message, 500);
+  }
+};
+
+/**
  * 删除单个题目
  */
 exports.deleteQuestion = async (req, res) => {
