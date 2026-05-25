@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 默认管理员账号: `admin` / `admin123`（由 `server/seeders/init.seeder.js` 自动创建）
 - AI 配置通过 `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` 三个环境变量控制，默认使用 DeepSeek，可替换为任何 OpenAI 兼容接口
 - 开发时 Vite 自动将 `/api` 请求代理到 `http://127.0.0.1:3000`（见 `vite.config.ts`），前端无需单独设置 `VITE_API_URL`
+- **Docker Compose**（`server/docker-compose.yml`）可一键启动 MySQL 8.0、Redis 7.0、MinIO 三个本地服务，需先手动创建 external volume：`docker volume create server_mysql_data server_redis_data server_minio_data`
 
 ## 开发命令
 
@@ -50,6 +51,12 @@ src/
 ├── utils/        # request.ts — Axios 实例 (拦截器统一处理 token 和错误)
 └── components/   # ParentView.vue — 路由嵌套占位组件
 ```
+
+**前端约定**:
+- 所有 Vue 组件使用 `<script setup lang="ts">` 语法
+- UI 框架为 Element Plus，图标使用 `@element-plus/icons-vue`
+- 富文本编辑器使用 wangEditor（培训计划详情等场景）
+- 日期处理使用 dayjs，拖拽排序使用 vuedraggable（题目管理）
 
 关键数据流: 路由守卫 (`router/index.ts`) → 按角色过滤菜单 → 页面通过 `src/api/` 调用后端。
 
@@ -103,10 +110,7 @@ server/
 
 `server/utils/ai.js` 封装 AI 调用，基于 OpenAI 兼容 SDK，默认指向 DeepSeek，可通过 `.env` 切换模型。
 
-**三种素材来源**（`POST /api/exams/:id/generate-questions`）：
-1. **自动提取** — 从考试关联的培训 `training.content` 提取纯文本（去 HTML 标签）
-2. **上传文件** — 支持 xlsx/docx/pdf，后端用 `mammoth`/`pdf-parse`/`xlsx` 解析为文本后送 AI
-3. **手动输入** — 用户粘贴文本
+**素材来源**（`POST /api/exams/:id/generate-questions`）：仅支持**上传文件**（xlsx/docx/pdf），后端用 `mammoth`/`pdf-parse`/`xlsx` 解析为文本后送 AI
 
 **关键参数**：
 - 前端超时 120s（AI 调用耗时较长，默认 10s 不够）
@@ -145,7 +149,8 @@ server/
 - **权限**: RBAC，三个角色硬编码 — `admin`、`teacher`、`trainer`。后端 `role.middleware.js` 提供 `isAdmin` 和 `isTrainerOrAdmin` 两个中间件。前端 `router/index.ts` 的 `beforeEach` 守卫校验 `meta.roles`。
 - **密码加密**: `bcryptjs`，种子数据中默认密码哈希强度为 8 轮。
 - **文件存储**: MinIO 对象存储（`minio` v8），bucket 名 `teacher-training`。启动时自动创建 bucket。MinIO 不可用时文件上传功能受影响，但不阻塞应用启动。
-- **ORM**: Sequelize 6，全局 `underscored: true`（数据库蛇形 ↔ 模型驼峰）。连接池 max 5 / min 0。
+- **框架**: Express 5，自动捕获异步路由处理器中的 rejected promise，无需手动 `try-catch` 包裹每个路由。
+- **ORM**: Sequelize 6，全局 `underscored: true`（数据库蛇形 ↔ 模型驼峰）。连接池 max 5 / min 0。启动时 `alter: false`（不自动修改表结构），新增字段或索引需手动编写 SQL 迁移。
 - **AI**: OpenAI 兼容 SDK（默认 DeepSeek），模型/URL/Key 均通过 `.env` 配置。`server/utils/ai.js` 封装调用，`max_tokens: 8192`，输入截断 20000 字。AI 出题路由 `POST /api/exams/:id/generate-questions`，前端超时 120s。支持从培训内容、上传文件（xlsx/docx/pdf）或手动输入文本三种方式生成题目。
 - **安全**: `helmet`（CSP 放宽图片/脚本策略以兼容富文本和外部图片）、`cors`、`hpp`（防参数污染）、`express-rate-limit`（15 分钟 1000 请求）。
 - **日志**: `winston`（后端）、`morgan`（HTTP 请求日志）。捕获 `uncaughtException` 和 `unhandledRejection` 防止进程退出。

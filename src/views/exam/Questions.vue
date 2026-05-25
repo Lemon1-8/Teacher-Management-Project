@@ -58,14 +58,7 @@
     <!-- AI 生成题目弹窗 -->
     <el-dialog v-model="aiVisible" title="AI 智能出题" width="800px" :close-on-click-modal="false">
       <el-form label-width="100px">
-        <el-form-item label="素材来源">
-          <el-radio-group v-model="aiSource">
-            <el-radio label="auto">自动提取（从关联培训内容）</el-radio>
-            <el-radio label="file">上传文件</el-radio>
-            <el-radio label="manual">手动输入</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="aiSource === 'file'" label="选择文件">
+        <el-form-item label="上传素材">
           <div>
             <input
               type="file"
@@ -77,9 +70,6 @@
             <span v-if="aiFile" style="margin-left: 10px; color: #67c23a">已选择: {{ aiFile.name }}</span>
             <div class="el-upload__tip">支持 Excel、Word、PDF 格式，文件内容将被 AI 分析后出题</div>
           </div>
-        </el-form-item>
-        <el-form-item v-if="aiSource === 'manual'" label="培训内容">
-          <el-input v-model="aiText" type="textarea" :rows="6" placeholder="请粘贴培训内容文本（至少50字）" />
         </el-form-item>
         <el-form-item label="生成数量">
           <div style="display: flex; gap: 20px; flex-wrap: wrap">
@@ -223,8 +213,6 @@ const questions = ref<any[]>([])
 
 // AI 生成相关
 const aiVisible = ref(false)
-const aiSource = ref('auto')
-const aiText = ref('')
 const aiFile = ref<File | null>(null)
 const aiFileInput = ref<HTMLInputElement | null>(null)
 const aiSingleCount = ref(5)
@@ -377,8 +365,6 @@ const saveAll = async () => {
 }
 
 const openAiDialog = () => {
-  aiSource.value = 'auto'
-  aiText.value = ''
   aiFile.value = null
   if (aiFileInput.value) {
     aiFileInput.value.value = ''
@@ -392,15 +378,8 @@ const openAiDialog = () => {
 }
 
 const handleAiGenerate = async () => {
-  console.log('=== AI 生成开始 ===')
-  console.log('aiSource:', aiSource.value, 'aiFile:', aiFile.value?.name, 'aiText长度:', aiText.value.length)
-  if (aiSource.value === 'file' && !aiFile.value) {
-    console.log('文件未选择，中止')
+  if (!aiFile.value) {
     ElMessage.warning('请先选择文件')
-    return
-  }
-  if (aiSource.value === 'manual' && aiText.value.trim().length < 50) {
-    ElMessage.warning('手动输入的文本内容至少需要50字')
     return
   }
   aiGenerating.value = true
@@ -412,13 +391,8 @@ const handleAiGenerate = async () => {
       truefalseCount: aiTruefalseCount.value,
       score: aiScore.value,
     }
-    if (aiSource.value === 'manual') {
-      params.text = aiText.value
-    }
-    const file = aiSource.value === 'file' ? aiFile.value : undefined
-    console.log('调用 generateQuestions, params:', params, 'file:', file?.name)
 
-    const res: any = await generateQuestions(examId, params, file)
+    const res: any = await generateQuestions(examId, params, aiFile.value!)
     console.log('API 原始返回:', JSON.stringify(res))
     console.log('res.questions:', res.questions)
     aiResults.value = (res.questions || []).map((q: any) => ({

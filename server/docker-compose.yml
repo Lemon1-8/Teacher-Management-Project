@@ -1,0 +1,48 @@
+name: Teacher-Management-server
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: teacher_mysql
+    environment:
+      MYSQL_DATABASE: teacher_training
+      MYSQL_ROOT_PASSWORD: "123456"
+    volumes:
+      - server_mysql_data:/var/lib/mysql
+    networks:
+      - teacher_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: teacher_redis
+    volumes:
+      - server_redis_data:/data
+    networks:
+      - teacher_network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    container_name: teacher_minio
+    command: server /data --console-address :9000 --address :9005
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: "123456789"
+    volumes:
+      - server_minio_data:/data
+    networks:
+      - teacher_network
+    restart: unless-stopped
+
+networks:
+  teacher_network:
+    driver: bridge
+
+volumes:
+  server_mysql_data:
+    external: true
+  server_redis_data:
+    external: true
+  server_minio_data:
+    external: true

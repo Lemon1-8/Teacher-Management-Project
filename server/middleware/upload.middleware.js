@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const logger = require('../utils/logger');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -36,7 +37,8 @@ const upload = multer({
     if (allowedExtensions.includes(extname)) {
       return cb(null, true);
     }
-    cb(new Error('不支持的文件类型'));
+    logger.warn(`文件上传被拒绝: "${file.originalname}" (扩展名 "${extname}" 不在允许列表中)`);
+    cb(new Error(`不支持的文件类型: ${extname || '无扩展名'}`));
   }
 });
 
